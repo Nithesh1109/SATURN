@@ -42,10 +42,17 @@ class CoreAPI:
         """Execute a goal through Router -> Agent -> Planner -> ToolExecutor."""
         result = self._orchestrator.run(goal)
         return {
+            "task_id": result.task_id,
+            "goal": result.goal,
+            "state": result.state.value,
+            "lifecycle": [state.value for state in result.lifecycle],
             "response": asdict(result.response),
             "plan": asdict(result.plan),
             "executions": [asdict(execution) for execution in result.executions],
             "success": result.success,
+            "cancelled": result.cancelled,
+            "timed_out": result.timed_out,
+            "error": result.error,
         }
 
     def _build_default_orchestrator(self) -> TaskOrchestrator:

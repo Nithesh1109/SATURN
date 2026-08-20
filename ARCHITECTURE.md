@@ -78,6 +78,7 @@ SATURN uses hybrid planning and replanning. It creates a high-level plan, execut
 ## 11. Task Orchestrator
 
 Tasks have explicit lifecycle states and support dependencies, priority, cancellation, retries, timeouts, and parallel execution where safe.
+The current v1 implementation executes plans step-by-step with lifecycle transitions (PENDING, PLANNING, EXECUTING, VERIFYING, COMPLETED, FAILED, CANCELLED), verification after each step, bounded retries, and bounded replanning loops.
 
 ## 12. Tool System
 
