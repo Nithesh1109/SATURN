@@ -1,59 +1,111 @@
-"""Cloud AI provider abstraction."""
+"""NVIDIA NIM cloud AI provider for SATURN v1."""
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
+from urllib import error, request as urlrequest
 
 from .providers import AIProvider, AIProviderConfig, AIRequest, AIResponse, ProviderKind
 
 
 class CloudAIProvider(AIProvider):
-    """Adapter for cloud model APIs via the same provider contract as local models."""
+    """OpenAI-compatible cloud adapter, configured for NVIDIA NIM by default."""
+
+    DEFAULT_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
+    DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
 
     def __init__(
         self,
         *,
-        name: str = "cloud",
-        model: str = "cloud-default",
+        name: str = "nvidia-nim",
+        model: str | None = None,
         enabled: bool = True,
         endpoint: str | None = None,
-        api_key_env_var: str = "SATURN_CLOUD_API_KEY",
-        require_api_key: bool = True,
+        api_key_env_var: str = "NVIDIA_API_KEY",
+        timeout_seconds: float = 60.0,
         responder: Callable[[AIRequest], AIResponse] | None = None,
     ) -> None:
         self.name = name
         self.config = AIProviderConfig(
             name=name,
             kind=ProviderKind.CLOUD,
-            model=model,
+            model=model or os.getenv("SATURN_CLOUD_MODEL", self.DEFAULT_MODEL),
             enabled=enabled,
-            endpoint=endpoint,
+            endpoint=endpoint or os.getenv("SATURN_CLOUD_ENDPOINT", self.DEFAULT_ENDPOINT),
+            timeout_seconds=timeout_seconds,
             api_key_env_var=api_key_env_var,
         )
-        self._require_api_key = require_api_key
         self._responder = responder
 
     def available(self) -> bool:
         assert self.config is not None
         if not self.config.enabled:
             return False
-        if not self._require_api_key:
-            return True
         env_name = self.config.api_key_env_var
         return bool(env_name and os.getenv(env_name))
 
     def generate(self, request: AIRequest) -> AIResponse:
         if self._responder is not None:
             return self._responder(request)
+
         assert self.config is not None
+        if not self.available():
+            raise RuntimeError(
+                f"{self.name} is unavailable: set {self.config.api_key_env_var}"
+            )
+
+        messages: list[dict[str, str]] = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.extend(request.context)
+        messages.append({"role": "user", "content": request.prompt})
+
+        payload: dict[str, object] = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": False,
+        }
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+
+        body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {os.environ[self.config.api_key_env_var]}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        http_request = urlrequest.Request(
+            self.config.endpoint or self.DEFAULT_ENDPOINT,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urlrequest.urlopen(http_request, timeout=self.config.timeout_seconds) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Cloud AI request failed ({exc.code}): {detail}") from exc
+        except error.URLError as exc:
+            raise RuntimeError(f"Cloud AI connection failed: {exc.reason}") from exc
+
+        try:
+            choice = raw["choices"][0]
+            message = choice["message"]
+            text = message["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("Cloud AI returned an unexpected response") from exc
+
         return AIResponse(
-            text=request.prompt,
+            text=text,
             provider=self.name,
-            model=self.config.model,
-            metadata={
-                "kind": ProviderKind.CLOUD.value,
-                "mode": "stub",
-                "api_key_env_var": self.config.api_key_env_var,
-            },
+            model=raw.get("model", self.config.model),
+            finish_reason=choice.get("finish_reason", "stop"),
+            metadata={"kind": ProviderKind.CLOUD.value},
+            raw=raw,
         )
