@@ -4,8 +4,7 @@ from threading import Thread
 from http.server import ThreadingHTTPServer
 
 from saturn.core.server import CoreRequestHandler
-
-from .test_api import build_test_api
+from tests.core.test_api import build_test_api
 
 
 def test_health_endpoint() -> None:
