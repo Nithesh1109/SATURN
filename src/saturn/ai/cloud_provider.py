@@ -101,11 +101,39 @@ class CloudAIProvider(AIProvider):
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError("Cloud AI returned an unexpected response") from exc
 
+        metadata: dict[str, object] = {"kind": ProviderKind.CLOUD.value}
+        user_text = text
+        structured = self._parse_structured_response(text)
+        if structured is not None:
+            tool_calls = structured.get("tool_calls", structured.get("steps", []))
+            if isinstance(tool_calls, list):
+                metadata["tool_calls"] = tool_calls
+            response_text = structured.get("response")
+            if isinstance(response_text, str):
+                user_text = response_text
+
         return AIResponse(
-            text=text,
+            text=user_text,
             provider=self.name,
             model=raw.get("model", self.config.model),
             finish_reason=choice.get("finish_reason", "stop"),
-            metadata={"kind": ProviderKind.CLOUD.value},
+            metadata=metadata,
             raw=raw,
         )
+
+    @staticmethod
+    def _parse_structured_response(text: str) -> dict[str, object] | None:
+        """Parse the planner JSON without making a second model/API call."""
+        candidate = text.strip()
+        if candidate.startswith("```"):
+            lines = candidate.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            candidate = "\n".join(lines).strip()
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        return value if isinstance(value, dict) else None
