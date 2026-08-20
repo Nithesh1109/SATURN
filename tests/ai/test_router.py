@@ -1,4 +1,4 @@
-from saturn.ai.providers import AIProvider, AIRequest, AIResponse
+from saturn.ai.providers import AIProvider, AIRequest, AIResponse, ProviderKind
 from saturn.ai.router import AIRouter, Route
 
 
@@ -26,6 +26,22 @@ def test_router_falls_back_to_cloud() -> None:
     response = router.generate(AIRequest("hello"))
 
     assert response.provider == "cloud"
+
+
+def test_router_prefers_cloud_for_complex_requests() -> None:
+    router = AIRouter(FakeProvider("local"), FakeProvider("cloud"))
+    decision = router.decide(AIRequest("deep reasoning", complexity="complex"))
+
+    assert decision.route is Route.CLOUD
+
+
+def test_router_honors_preferred_route_with_fallback() -> None:
+    router = AIRouter(FakeProvider("local"), FakeProvider("cloud", False))
+    decision = router.decide(
+        AIRequest("hello", preferred_route=ProviderKind.CLOUD),
+    )
+
+    assert decision.route is Route.LOCAL
 
 
 def test_router_fails_without_provider() -> None:

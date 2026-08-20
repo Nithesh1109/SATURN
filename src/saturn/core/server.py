@@ -12,6 +12,23 @@ from .api import CoreAPI
 class CoreRequestHandler(BaseHTTPRequestHandler):
     api = CoreAPI()
 
+    def _read_json(self) -> dict[str, Any]:
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_length)
+        except ValueError:
+            return {}
+        if length <= 0:
+            return {}
+        body = self.rfile.read(length)
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        if isinstance(payload, dict):
+            return payload
+        return {}
+
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -32,6 +49,14 @@ class CoreRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/core/stop":
             self._send_json(200, self.api.stop())
+            return
+        if self.path == "/agent/run":
+            payload = self._read_json()
+            goal = str(payload.get("goal", "")).strip()
+            if not goal:
+                self._send_json(400, {"error": "goal_required"})
+                return
+            self._send_json(200, self.api.run_task(goal))
             return
         self._send_json(404, {"error": "not_found"})
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .providers import AIProvider, AIRequest, AIResponse
+from saturn.router.policy import Provider, RouterPolicy
+
+from .providers import AIProvider, AIRequest, AIResponse, ProviderKind
 
 
 class Route(str, Enum):
@@ -22,16 +24,28 @@ class RoutingDecision:
 class AIRouter:
     """Select an available provider without coupling SATURN to a vendor."""
 
-    def __init__(self, local: AIProvider, cloud: AIProvider | None = None) -> None:
+    def __init__(
+        self,
+        local: AIProvider,
+        cloud: AIProvider | None = None,
+        policy: RouterPolicy | None = None,
+    ) -> None:
         self.local = local
         self.cloud = cloud
+        self._policy = policy or RouterPolicy()
 
     def decide(self, request: AIRequest) -> RoutingDecision:
-        # Local is the default for privacy, speed, and offline capability.
-        if self.local.available():
-            return RoutingDecision(Route.LOCAL, "local-first")
-        if self.cloud is not None and self.cloud.available():
-            return RoutingDecision(Route.CLOUD, "local-unavailable")
+        preferred = request.preferred_route or self._route_from_policy(request.complexity)
+        candidates: list[tuple[Route, AIProvider | None]]
+
+        if preferred is ProviderKind.CLOUD:
+            candidates = [(Route.CLOUD, self.cloud), (Route.LOCAL, self.local)]
+        else:
+            candidates = [(Route.LOCAL, self.local), (Route.CLOUD, self.cloud)]
+
+        for route, provider in candidates:
+            if provider is not None and provider.available():
+                return RoutingDecision(route, f"policy:{preferred.value}")
         raise RuntimeError("No SATURN AI provider is available")
 
     def generate(self, request: AIRequest) -> AIResponse:
@@ -39,3 +53,9 @@ class AIRouter:
         provider = self.local if decision.route is Route.LOCAL else self.cloud
         assert provider is not None
         return provider.generate(request)
+
+    def _route_from_policy(self, complexity: str) -> ProviderKind:
+        decision = self._policy.choose(complexity)
+        if decision.provider is Provider.CLOUD:
+            return ProviderKind.CLOUD
+        return ProviderKind.LOCAL
