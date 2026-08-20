@@ -25,3 +25,7 @@ class ToolExecutor:
             return tool.execute(arguments, context)
         except Exception as exc:  # Tool boundary: normalize unexpected failures.
             return ToolResult(success=False, error=f"Tool execution failed: {exc}")
+
+    def catalog(self) -> tuple[dict[str, str], ...]:
+        """Return registered tool names and descriptions for the planner."""
+        return self._registry.catalog()
