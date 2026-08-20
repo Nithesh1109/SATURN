@@ -25,8 +25,8 @@ def test_cloud_provider_uses_env_key_when_present() -> None:
     try:
         provider = CloudAIProvider(api_key_env_var=env_name)
         response = provider.generate(AIRequest("hello"))
+        assert provider.available() is True
     finally:
         os.environ.pop(env_name, None)
 
-    assert provider.available() is True
     assert response.provider == "cloud"
