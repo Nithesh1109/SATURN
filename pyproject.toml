@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "SATURN — a production-grade AI computer agent"
 requires-python = ">=3.11"
 readme = "README.md"
-dependencies = []
+dependencies = [
+    "pyautogui>=0.9.54",
+]
 
 [project.optional-dependencies]
 dev = [
