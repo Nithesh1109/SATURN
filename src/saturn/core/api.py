@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from saturn.agent.executor import ToolExecutor
-from saturn.agent.orchestrator import TaskOrchestrator
+from saturn.agent.orchestrator import SaturnAgent, TaskOrchestrator
 from saturn.agent.planner import RuleBasedPlanner
 from saturn.ai.cloud_provider import CloudAIProvider
 from saturn.ai.router import AIRouter
 from saturn.tools.registry import ToolRegistry
+from saturn.tools.windows import WindowsToolSet
 
 from .runtime import SaturnCore
 
@@ -58,7 +59,8 @@ class CoreAPI:
         cloud = CloudAIProvider()
         router = AIRouter(cloud=cloud)
         planner = RuleBasedPlanner()
-        executor = ToolExecutor(ToolRegistry())
-        from saturn.agent.orchestrator import SaturnAgent
-
+        registry = ToolRegistry()
+        for tool in WindowsToolSet.create():
+            registry.register(tool)
+        executor = ToolExecutor(registry)
         return TaskOrchestrator(SaturnAgent(router=router, planner=planner, executor=executor))
