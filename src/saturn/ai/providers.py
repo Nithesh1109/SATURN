@@ -1,4 +1,4 @@
-"""Provider-neutral AI interface for SATURN."""
+"""Provider-neutral AI interface for SATURN's cloud-first architecture."""
 
 from __future__ import annotations
 
@@ -9,21 +9,18 @@ from typing import Any
 
 
 class ProviderKind(str, Enum):
-    """Supported provider families in SATURN's hybrid AI layer."""
+    """Supported provider family for SATURN v1."""
 
-    LOCAL = "local"
     CLOUD = "cloud"
 
 
 @dataclass(frozen=True)
 class AIRequest:
-    """Common request contract accepted by all AI providers."""
+    """Common request contract accepted by SATURN's cloud provider."""
 
     prompt: str
     system: str | None = None
     context: list[dict[str, str]] = field(default_factory=list)
-    complexity: str = "simple"
-    preferred_route: ProviderKind | None = None
     max_tokens: int | None = None
     temperature: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -43,7 +40,7 @@ class AIResponse:
 
 @dataclass(frozen=True)
 class AIProviderConfig:
-    """Configuration shared by local and cloud provider abstractions."""
+    """Configuration for a cloud AI provider."""
 
     name: str
     kind: ProviderKind
@@ -56,7 +53,7 @@ class AIProviderConfig:
 
 
 class AIProvider(ABC):
-    """Contract implemented by local and cloud AI providers."""
+    """Contract implemented by SATURN's AI provider."""
 
     name: str
     config: AIProviderConfig | None = None
