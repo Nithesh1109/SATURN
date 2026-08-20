@@ -1,9 +1,9 @@
-from saturn.ai.providers import AIProvider, AIRequest, AIResponse, ProviderKind
+from saturn.ai.providers import AIProvider, AIRequest, AIResponse
 from saturn.ai.router import AIRouter, Route
 
 
 class FakeProvider(AIProvider):
-    def __init__(self, name: str, is_available: bool = True) -> None:
+    def __init__(self, name: str = "cloud", is_available: bool = True) -> None:
         self.name = name
         self.is_available = is_available
 
@@ -14,42 +14,27 @@ class FakeProvider(AIProvider):
         return AIResponse(request.prompt, self.name, "fake")
 
 
-def test_router_prefers_local() -> None:
-    router = AIRouter(FakeProvider("local"), FakeProvider("cloud"))
+def test_router_always_uses_cloud() -> None:
+    router = AIRouter(FakeProvider())
     decision = router.decide(AIRequest("hello"))
 
-    assert decision.route is Route.LOCAL
+    assert decision.route is Route.CLOUD
+    assert decision.reason == "cloud-first"
 
 
-def test_router_falls_back_to_cloud() -> None:
-    router = AIRouter(FakeProvider("local", False), FakeProvider("cloud"))
+def test_router_generates_with_cloud() -> None:
+    router = AIRouter(FakeProvider())
     response = router.generate(AIRequest("hello"))
 
     assert response.provider == "cloud"
 
 
-def test_router_prefers_cloud_for_complex_requests() -> None:
-    router = AIRouter(FakeProvider("local"), FakeProvider("cloud"))
-    decision = router.decide(AIRequest("deep reasoning", complexity="complex"))
-
-    assert decision.route is Route.CLOUD
-
-
-def test_router_honors_preferred_route_with_fallback() -> None:
-    router = AIRouter(FakeProvider("local"), FakeProvider("cloud", False))
-    decision = router.decide(
-        AIRequest("hello", preferred_route=ProviderKind.CLOUD),
-    )
-
-    assert decision.route is Route.LOCAL
-
-
-def test_router_fails_without_provider() -> None:
-    router = AIRouter(FakeProvider("local", False), FakeProvider("cloud", False))
+def test_router_fails_when_cloud_is_unavailable() -> None:
+    router = AIRouter(FakeProvider(is_available=False))
 
     try:
         router.decide(AIRequest("hello"))
     except RuntimeError as exc:
-        assert "No SATURN AI provider" in str(exc)
+        assert "cloud AI provider is unavailable" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError")
