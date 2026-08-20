@@ -5,6 +5,8 @@ from http.server import ThreadingHTTPServer
 
 from saturn.core.server import CoreRequestHandler
 
+from .test_api import build_test_api
+
 
 def test_health_endpoint() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), CoreRequestHandler)
@@ -26,6 +28,8 @@ def test_health_endpoint() -> None:
 
 
 def test_agent_run_endpoint() -> None:
+    original_api = CoreRequestHandler.api
+    CoreRequestHandler.api = build_test_api()
     server = ThreadingHTTPServer(("127.0.0.1", 0), CoreRequestHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -42,8 +46,10 @@ def test_agent_run_endpoint() -> None:
         payload = json.loads(response.read())
 
         assert response.status == 200
-        assert payload["response"]["text"] == "ping"
+        assert payload["response"]["text"] == "planned"
+        assert payload["success"] is True
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+        CoreRequestHandler.api = original_api
