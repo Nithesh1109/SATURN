@@ -43,6 +43,10 @@ class CloudAIProvider(AIProvider):
         assert self.config is not None
         if not self.config.enabled:
             return False
+        # Injected responders are deterministic in-process providers used by
+        # tests and other callers that do not need network credentials.
+        if self._responder is not None:
+            return True
         env_name = self.config.api_key_env_var
         return bool(env_name and os.getenv(env_name))
 
