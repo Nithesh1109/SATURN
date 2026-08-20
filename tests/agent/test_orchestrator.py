@@ -10,7 +10,7 @@ from saturn.tools.registry import ToolRegistry
 
 
 class PlanningProvider(AIProvider):
-    name = "local"
+    name = "cloud-test"
 
     def generate(self, request: AIRequest) -> AIResponse:
         return AIResponse(
@@ -24,7 +24,7 @@ class PlanningProvider(AIProvider):
                         "arguments": {"message": request.prompt},
                         "reason": "confirm goal",
                     }
-                ]
+                ],
             },
         )
 
@@ -86,11 +86,15 @@ def build_registry(*tools: Tool) -> ToolRegistry:
     return registry
 
 
+def build_router(provider: AIProvider) -> AIRouter:
+    return AIRouter(cloud=provider)
+
+
 def test_orchestrator_runs_router_to_executor_pipeline() -> None:
     registry = build_registry(EchoTool())
 
     agent = SaturnAgent(
-        router=AIRouter(local=PlanningProvider()),
+        router=build_router(PlanningProvider()),
         planner=RuleBasedPlanner(),
         executor=ToolExecutor(registry),
     )
@@ -112,19 +116,19 @@ def test_orchestrator_retries_failed_tool_safely() -> None:
 
     response = AIResponse(
         text="planned",
-        provider="local",
+        provider="cloud-test",
         model="fake",
         metadata={"tool_calls": [{"name": "flaky", "arguments": {}}]},
     )
 
     class Provider(AIProvider):
-        name = "local"
+        name = "cloud-test"
 
         def generate(self, request: AIRequest) -> AIResponse:
             return response
 
     agent = SaturnAgent(
-        router=AIRouter(local=Provider()),
+        router=build_router(Provider()),
         planner=RuleBasedPlanner(),
         executor=ToolExecutor(registry),
         max_step_retries=1,
@@ -143,13 +147,13 @@ def test_orchestrator_fails_when_retry_budget_exhausted() -> None:
     plan = AgentPlan(goal="fail", steps=(PlanStep(action="fail"),))
 
     class Provider(AIProvider):
-        name = "local"
+        name = "cloud-test"
 
         def generate(self, request: AIRequest) -> AIResponse:
-            return AIResponse(text="planned", provider="local", model="fake")
+            return AIResponse(text="planned", provider=self.name, model="fake")
 
     agent = SaturnAgent(
-        router=AIRouter(local=Provider()),
+        router=build_router(Provider()),
         planner=StaticPlanner([plan]),
         executor=ToolExecutor(registry),
         max_step_retries=1,
@@ -169,13 +173,13 @@ def test_orchestrator_replans_after_failed_verification() -> None:
     second = AgentPlan(goal="recover", steps=(PlanStep(action="echo", arguments={"message": "fixed"}),))
 
     class Provider(AIProvider):
-        name = "local"
+        name = "cloud-test"
 
         def generate(self, request: AIRequest) -> AIResponse:
-            return AIResponse(text="planned", provider="local", model="fake")
+            return AIResponse(text="planned", provider=self.name, model="fake")
 
     agent = SaturnAgent(
-        router=AIRouter(local=Provider()),
+        router=build_router(Provider()),
         planner=StaticPlanner([first, second]),
         executor=ToolExecutor(registry),
         max_replans=1,
@@ -192,7 +196,7 @@ def test_orchestrator_supports_cancellation() -> None:
     token = CancellationToken(cancelled=True)
 
     agent = SaturnAgent(
-        router=AIRouter(local=PlanningProvider()),
+        router=build_router(PlanningProvider()),
         planner=RuleBasedPlanner(),
         executor=ToolExecutor(registry),
     )
@@ -209,13 +213,13 @@ def test_orchestrator_enforces_timeout() -> None:
     plan = AgentPlan(goal="slow", steps=(PlanStep(action="slow"),))
 
     class Provider(AIProvider):
-        name = "local"
+        name = "cloud-test"
 
         def generate(self, request: AIRequest) -> AIResponse:
-            return AIResponse(text="planned", provider="local", model="fake")
+            return AIResponse(text="planned", provider=self.name, model="fake")
 
     agent = SaturnAgent(
-        router=AIRouter(local=Provider()),
+        router=build_router(Provider()),
         planner=StaticPlanner([plan]),
         executor=ToolExecutor(registry),
     )
