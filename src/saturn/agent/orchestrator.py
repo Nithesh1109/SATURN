@@ -14,7 +14,7 @@ from saturn.ai.router import AIRouter
 from saturn.tools.base import ToolContext, ToolResult
 
 from .executor import ToolExecutor
-from .planner import AgentPlan, PlanStep, Planner
+from .planner import AgentPlan, PlanStep, Planner, RuleBasedPlanner
 from .session import AgentSession
 
 
@@ -88,7 +88,7 @@ class AgentRunResult:
 
 
 class AgentOrchestrator:
-    """Dedicated orchestrator that manages planning, execution, verification, and recovery."""
+    """Dedicated orchestrator that manages planning and tool execution."""
 
     def __init__(
         self,
@@ -167,7 +167,8 @@ class AgentOrchestrator:
             return finalize(TaskLifecycleState.FAILED, error="Task timed out before planning", timeout=True)
 
         set_state(TaskLifecycleState.PLANNING)
-        response = self._router.generate(request)
+        planning_request = self._build_planning_request(request)
+        response = self._router.generate(planning_request)
         plan = self._planner.create_plan(goal=request.prompt, ai_response=response)
         current_plan = plan
 
@@ -209,11 +210,12 @@ class AgentOrchestrator:
                     if replans_left > 0:
                         replans_left -= 1
                         set_state(TaskLifecycleState.PLANNING)
+                        response = self._router.generate(planning_request)
                         current_plan = self._planner.create_plan(goal=request.prompt, ai_response=response)
                         replan_needed = True
                         break
 
-                    failure = observed.error or f"Step verification failed for tool '{step.action}'"
+                    failure = observed.error or f"Step execution failed for tool '{step.action}'"
                     return finalize(TaskLifecycleState.FAILED, error=failure)
 
                 if replan_needed:
@@ -224,6 +226,26 @@ class AgentOrchestrator:
             break
 
         return finalize(TaskLifecycleState.COMPLETED)
+
+    def _build_planning_request(self, request: AIRequest) -> AIRequest:
+        """Build one cloud request that contains both reasoning instructions and tools."""
+        catalog = self._executor.catalog()
+        tool_lines = [
+            f"- {item['name']}: {item['description']}"
+            for item in catalog
+            if item.get("name") and item.get("description")
+        ]
+        tools_text = "\n".join(tool_lines) if tool_lines else "- No tools are currently registered."
+        system = request.system or RuleBasedPlanner.PLAN_SYSTEM_PROMPT
+        system = f"{system}\n\nAvailable SATURN tools:\n{tools_text}"
+        return AIRequest(
+            prompt=request.prompt,
+            system=system,
+            context=request.context,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            metadata={**request.metadata, "mode": "cloud_planning"},
+        )
 
 
 class SaturnAgent:
