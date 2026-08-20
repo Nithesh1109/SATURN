@@ -9,6 +9,7 @@ from saturn.agent.orchestrator import SaturnAgent, TaskOrchestrator
 from saturn.agent.planner import RuleBasedPlanner
 from saturn.ai.cloud_provider import CloudAIProvider
 from saturn.ai.router import AIRouter
+from saturn.tools.desktop import DesktopToolSet
 from saturn.tools.registry import ToolRegistry
 from saturn.tools.windows import WindowsToolSet
 
@@ -60,7 +61,9 @@ class CoreAPI:
         router = AIRouter(cloud=cloud)
         planner = RuleBasedPlanner()
         registry = ToolRegistry()
-        for tool in WindowsToolSet.create():
+
+        for tool in (*WindowsToolSet.create(), *DesktopToolSet.create()):
             registry.register(tool)
+
         executor = ToolExecutor(registry)
         return TaskOrchestrator(SaturnAgent(router=router, planner=planner, executor=executor))
