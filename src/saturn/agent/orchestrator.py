@@ -195,13 +195,13 @@ class AgentOrchestrator:
                         ),
                     )
 
-                    if verified:
-                        break
-
                     if cancellation_token is not None and cancellation_token.cancelled:
                         return finalize(TaskLifecycleState.CANCELLED, error="Task cancelled", cancelled=True)
                     if timed_out():
                         return finalize(TaskLifecycleState.FAILED, error="Task timed out", timeout=True)
+
+                    if verified:
+                        break
 
                     if attempt <= retries:
                         continue
