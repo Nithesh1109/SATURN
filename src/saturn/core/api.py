@@ -8,7 +8,6 @@ from saturn.agent.executor import ToolExecutor
 from saturn.agent.orchestrator import TaskOrchestrator
 from saturn.agent.planner import RuleBasedPlanner
 from saturn.ai.cloud_provider import CloudAIProvider
-from saturn.ai.local_provider import LocalAIProvider
 from saturn.ai.router import AIRouter
 from saturn.tools.registry import ToolRegistry
 
@@ -56,9 +55,8 @@ class CoreAPI:
         }
 
     def _build_default_orchestrator(self) -> TaskOrchestrator:
-        local = LocalAIProvider()
         cloud = CloudAIProvider()
-        router = AIRouter(local=local, cloud=cloud)
+        router = AIRouter(cloud=cloud)
         planner = RuleBasedPlanner()
         executor = ToolExecutor(ToolRegistry())
         from saturn.agent.orchestrator import SaturnAgent
