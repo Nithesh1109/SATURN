@@ -9,14 +9,15 @@ from typing import Any
 
 
 class ProviderKind(str, Enum):
-    """Supported provider family for SATURN v1."""
+    """Provider families supported by the abstraction; v1 routes to CLOUD."""
 
     CLOUD = "cloud"
+    LOCAL = "local"  # Reserved for a future optional Ollama provider.
 
 
 @dataclass(frozen=True)
 class AIRequest:
-    """Common request contract accepted by SATURN's cloud provider."""
+    """Common request contract accepted by SATURN's AI provider."""
 
     prompt: str
     system: str | None = None
@@ -40,7 +41,7 @@ class AIResponse:
 
 @dataclass(frozen=True)
 class AIProviderConfig:
-    """Configuration for a cloud AI provider."""
+    """Configuration for an AI provider."""
 
     name: str
     kind: ProviderKind
@@ -53,7 +54,7 @@ class AIProviderConfig:
 
 
 class AIProvider(ABC):
-    """Contract implemented by SATURN's AI provider."""
+    """Contract implemented by SATURN AI providers."""
 
     name: str
     config: AIProviderConfig | None = None
