@@ -21,3 +21,10 @@ class ToolRegistry:
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._tools))
+
+    def catalog(self) -> tuple[dict[str, str], ...]:
+        """Return the minimal tool catalog that can be shown to the cloud planner."""
+        return tuple(
+            {"name": tool.name, "description": tool.description}
+            for tool in sorted(self._tools.values(), key=lambda item: item.name)
+        )
