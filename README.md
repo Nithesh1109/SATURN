@@ -67,7 +67,7 @@ $env:SATURN_CLOUD_MODEL="meta/llama-3.1-8b-instruct"
 $env:SATURN_VISION_MODEL="meta/llama-3.2-90b-vision-instruct"
 ```
 
-The NVIDIA hosted API exposes the text model through `https://integrate.api.nvidia.com/v1/chat/completions`, and NVIDIA's current model catalog also provides the Llama 3.2 90B Vision model through the same chat-completions surface with image content. citeturn0search0turn2search0
+The NVIDIA hosted API exposes the configured text and vision models through its OpenAI-compatible HTTP interface.
 
 ## Real cloud AI smoke test
 
