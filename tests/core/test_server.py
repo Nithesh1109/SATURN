@@ -40,12 +40,17 @@ def build_test_api() -> CoreAPI:
     return CoreAPI(orchestrator=TaskOrchestrator(agent))
 
 
-def test_health_endpoint() -> None:
-    original_api = CoreRequestHandler.api
-    CoreRequestHandler.api = CoreAPI()
+def _start_server():
     server = ThreadingHTTPServer(("127.0.0.1", 0), CoreRequestHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    return server, thread
+
+
+def test_health_endpoint() -> None:
+    original_api = CoreRequestHandler.api
+    CoreRequestHandler.api = CoreAPI()
+    server, thread = _start_server()
 
     try:
         connection = HTTPConnection("127.0.0.1", server.server_port)
@@ -64,9 +69,7 @@ def test_health_endpoint() -> None:
 def test_agent_run_endpoint() -> None:
     original_api = CoreRequestHandler.api
     CoreRequestHandler.api = build_test_api()
-    server = ThreadingHTTPServer(("127.0.0.1", 0), CoreRequestHandler)
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    server, thread = _start_server()
 
     try:
         connection = HTTPConnection("127.0.0.1", server.server_port)
@@ -79,6 +82,40 @@ def test_agent_run_endpoint() -> None:
         assert response.status == 200
         assert payload["response"]["text"] == "planned"
         assert payload["success"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        CoreRequestHandler.api = original_api
+
+
+def test_post_requires_configured_bearer_token(monkeypatch) -> None:
+    monkeypatch.setenv("SATURN_API_TOKEN", "test-token")
+    original_api = CoreRequestHandler.api
+    CoreRequestHandler.api = build_test_api()
+    server, thread = _start_server()
+
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_port)
+        connection.request(
+            "POST", "/agent/run", body=json.dumps({"goal": "ping"}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        assert response.status == 401
+        assert json.loads(response.read())["error"] == "unauthorized"
+
+        connection = HTTPConnection("127.0.0.1", server.server_port)
+        connection.request(
+            "POST", "/agent/run", body=json.dumps({"goal": "ping"}),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-token",
+            },
+        )
+        response = connection.getresponse()
+        assert response.status == 200
+        assert json.loads(response.read())["success"] is True
     finally:
         server.shutdown()
         server.server_close()
