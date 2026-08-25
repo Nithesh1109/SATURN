@@ -1,59 +1,123 @@
 # 🪐 SATURN
 
-**A production-grade, general-purpose AI computer agent.**
+**SATURN is a Windows-first AI computer agent that plans, executes, verifies, and safely recovers from desktop tasks.**
 
-SATURN is designed to understand natural-language requests through voice or text, reason using local and cloud AI, execute computer tasks through controlled tools, verify results, recover from failures, and communicate naturally.
+The current development branch is `copilot/continue-development-saturn`. It contains the SATURN agent core, cloud AI provider, Windows/desktop tools, screenshot perception, cloud vision adapter, safety validation, verification, safe-mode real-test harness, and automated tests.
 
-## Project Status
+## Current status
 
-**Version:** v1.0 — Foundation  
-**Platform:** Windows-first  
-**Architecture:** Hybrid local/cloud AI, background core + separate Control Center
+- **Development version:** v1.0 development
+- **Platform:** Windows-first
+- **AI:** cloud-first, provider-neutral interface
+- **Text model:** NVIDIA NIM / Meta Llama 3.1 8B Instruct by default
+- **Vision model:** NVIDIA NIM / Meta Llama 3.2 90B Vision Instruct by default
+- **Computer control:** Windows + PyAutoGUI through registered tools
+- **Safety:** centralized validation, confirmation gates, safe-mode real-test policy
+- **Testing:** deterministic automated tests plus explicit opt-in real cloud smoke tests
 
-## Core Principles
+The architecture remains the source of truth in `ARCHITECTURE.md`.
 
-- Agentic task execution
-- Hybrid local/cloud intelligence
-- Risk-based permissions
-- Tool-based computer control
-- Verification after actions
-- Adaptive recovery and replanning
-- Local-first memory
-- Intelligent screen vision
-- Extensible plugin architecture
-- User-independent environment detection
-- Voice and text interaction
-
-## Repository Structure
+## Repository structure
 
 ```text
 SATURN/
-├── apps/                 # Executable applications
-│   ├── core/             # SATURN background runtime
-│   └── control-center/   # SATURN UI
-├── packages/             # Reusable SATURN components
-│   ├── ai/
-│   ├── agent/
-│   ├── memory/
-│   ├── plugins/
-│   ├── platform/
-│   ├── security/
-│   ├── tools/
-│   └── voice/
-├── tests/                # Automated tests
-├── docs/                 # Technical documentation
-├── scripts/              # Development and release scripts
-├── ARCHITECTURE.md       # Architecture source of truth
-└── pyproject.toml        # Python project configuration
+├── src/saturn/
+│   ├── agent/       # planning, execution, orchestration, sessions
+│   ├── ai/          # provider contracts, cloud/local adapters, router
+│   ├── core/        # runtime, local API, HTTP server
+│   ├── memory/      # local memory foundation
+│   ├── runtime/     # safe mode, real-test and cloud smoke-test entry points
+│   ├── security/    # permission contracts
+│   ├── tools/       # Windows and desktop tools + validation
+│   └── vision/      # screenshot perception, cloud vision, targets, verification
+├── tests/           # deterministic automated tests
+├── ARCHITECTURE.md
+├── .env.example     # safe configuration template; contains no secrets
+└── pyproject.toml
 ```
 
-## Development Philosophy
+## Development setup
 
-SATURN is developed as a modular system. Components may be implemented by different contributors or AI development agents, but interfaces and architectural boundaries are defined centrally and tested before integration.
+Create and activate a virtual environment, then install SATURN in editable mode:
 
-## Getting Started
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+pytest
+```
 
-Development setup will be documented as the first implementation milestones are completed.
+All normal tests are offline and must not require an API key or perform unrestricted desktop actions.
+
+## Cloud AI configuration
+
+SATURN deliberately does **not** store an API key in the repository.
+
+1. Create an NVIDIA API key from the NVIDIA API Catalog.
+2. In your PowerShell session, set:
+
+```powershell
+$env:NVIDIA_API_KEY="nvapi-..."
+```
+
+3. Optional model overrides:
+
+```powershell
+$env:SATURN_CLOUD_MODEL="meta/llama-3.1-8b-instruct"
+$env:SATURN_VISION_MODEL="meta/llama-3.2-90b-vision-instruct"
+```
+
+The NVIDIA hosted API exposes the text model through `https://integrate.api.nvidia.com/v1/chat/completions`, and NVIDIA's current model catalog also provides the Llama 3.2 90B Vision model through the same chat-completions surface with image content. citeturn0search0turn2search0
+
+## Real cloud AI smoke test
+
+Before allowing SATURN to control the desktop with a real model, validate the external AI boundaries first:
+
+```powershell
+python -m saturn.runtime.ai_smoke
+```
+
+This performs a **text-only cloud test** and never executes a desktop action.
+
+To additionally test the vision model with an existing screenshot:
+
+```powershell
+python -m saturn.runtime.ai_smoke --vision-image .\saturn_real_test.png
+```
+
+Only send screenshots you are comfortable sharing with the configured cloud provider.
+
+## Local Core API
+
+The Core API binds to `127.0.0.1` by default. If `SATURN_API_TOKEN` is configured, POST endpoints require:
+
+```text
+Authorization: Bearer <token>
+```
+
+`GET /health` remains available for local health checks.
+
+## Safety boundary
+
+Do not skip the validator or safe-mode policy to make a real test pass. AI-generated actions are untrusted input. Real desktop testing should proceed in this order:
+
+```text
+Cloud text smoke
+      ↓
+Cloud vision smoke
+      ↓
+Screenshot + perception
+      ↓
+Target validation
+      ↓
+One harmless desktop action
+      ↓
+Verification
+      ↓
+Bounded multi-step task
+```
+
+Dangerous operations such as shutdown, lock, deletion, or unrestricted filesystem changes are not part of the first real smoke test.
 
 ## License
 
