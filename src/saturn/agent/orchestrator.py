@@ -19,8 +19,6 @@ from .session import AgentSession
 
 
 class TaskLifecycleState(str, Enum):
-    """Explicit lifecycle states for SATURN orchestrated tasks."""
-
     PENDING = "PENDING"
     PLANNING = "PLANNING"
     EXECUTING = "EXECUTING"
@@ -32,8 +30,6 @@ class TaskLifecycleState(str, Enum):
 
 @dataclass
 class CancellationToken:
-    """Simple cooperative cancellation token for agent runs."""
-
     cancelled: bool = False
 
     def cancel(self) -> None:
@@ -41,24 +37,18 @@ class CancellationToken:
 
 
 class ResultVerifier(ABC):
-    """Verifies observed tool outputs before the task can proceed."""
-
     @abstractmethod
     def verify(self, step: PlanStep, result: ToolResult, context: ToolContext) -> bool:
         raise NotImplementedError
 
 
 class DefaultResultVerifier(ResultVerifier):
-    """Default verifier that treats successful tool execution as verified."""
-
     def verify(self, step: PlanStep, result: ToolResult, context: ToolContext) -> bool:
         return result.success
 
 
 @dataclass(frozen=True)
 class StepExecution:
-    """One executed plan step and its normalized result."""
-
     step: PlanStep
     result: ToolResult
     attempt: int = 1
@@ -67,8 +57,6 @@ class StepExecution:
 
 @dataclass(frozen=True)
 class AgentRunResult:
-    """Execution artifact returned by SATURN's agent layer."""
-
     task_id: str
     goal: str
     response: AIResponse
@@ -88,7 +76,7 @@ class AgentRunResult:
 
 
 class AgentOrchestrator:
-    """Dedicated orchestrator that manages planning and tool execution."""
+    """Manage planning, execution, verification, and feedback-driven replanning."""
 
     def __init__(
         self,
@@ -125,6 +113,7 @@ class AgentOrchestrator:
         response = AIResponse(text="", provider="none", model="none", metadata={"mode": "not_run"})
         plan = AgentPlan(goal=request.prompt)
         executions: list[StepExecution] = []
+        feedback: list[dict[str, Any]] = []
         retries = self._max_step_retries if max_step_retries is None else max(0, max_step_retries)
         replans_left = self._max_replans if max_replans is None else max(0, max_replans)
         identifier = task_id or str(uuid.uuid4())
@@ -136,17 +125,9 @@ class AgentOrchestrator:
             state = next_state
 
         def timed_out() -> bool:
-            if timeout_seconds is None:
-                return False
-            return (time.monotonic() - started_at) >= timeout_seconds
+            return timeout_seconds is not None and (time.monotonic() - started_at) >= timeout_seconds
 
-        def finalize(
-            final_state: TaskLifecycleState,
-            *,
-            error: str | None = None,
-            cancelled: bool = False,
-            timeout: bool = False,
-        ) -> AgentRunResult:
+        def finalize(final_state: TaskLifecycleState, *, error: str | None = None, cancelled: bool = False, timeout: bool = False) -> AgentRunResult:
             set_state(final_state)
             return AgentRunResult(
                 task_id=identifier,
@@ -167,7 +148,7 @@ class AgentOrchestrator:
             return finalize(TaskLifecycleState.FAILED, error="Task timed out before planning", timeout=True)
 
         set_state(TaskLifecycleState.PLANNING)
-        planning_request = self._build_planning_request(request)
+        planning_request = self._build_planning_request(request, feedback=feedback)
         response = self._router.generate(planning_request)
         plan = self._planner.create_plan(goal=request.prompt, ai_response=response)
         current_plan = plan
@@ -184,17 +165,10 @@ class AgentOrchestrator:
                 for attempt in range(1, retries + 2):
                     set_state(TaskLifecycleState.EXECUTING)
                     observed = self._executor.execute(step.action, step.arguments, tool_context)
-
                     set_state(TaskLifecycleState.VERIFYING)
                     verified = self._verifier.verify(step, observed, tool_context)
-                    executions.append(
-                        StepExecution(
-                            step=step,
-                            result=observed,
-                            attempt=attempt,
-                            verified=verified,
-                        ),
-                    )
+                    executions.append(StepExecution(step=step, result=observed, attempt=attempt, verified=verified))
+                    feedback.append(self._build_execution_feedback(step, observed, verified, attempt))
 
                     if cancellation_token is not None and cancellation_token.cancelled:
                         return finalize(TaskLifecycleState.CANCELLED, error="Task cancelled", cancelled=True)
@@ -203,13 +177,12 @@ class AgentOrchestrator:
 
                     if verified:
                         break
-
                     if attempt <= retries:
                         continue
-
                     if replans_left > 0:
                         replans_left -= 1
                         set_state(TaskLifecycleState.PLANNING)
+                        planning_request = self._build_planning_request(request, feedback=feedback)
                         response = self._router.generate(planning_request)
                         current_plan = self._planner.create_plan(goal=request.prompt, ai_response=response)
                         replan_needed = True
@@ -227,99 +200,58 @@ class AgentOrchestrator:
 
         return finalize(TaskLifecycleState.COMPLETED)
 
-    def _build_planning_request(self, request: AIRequest) -> AIRequest:
-        """Build one cloud request that contains both reasoning instructions and tools."""
+    def _build_execution_feedback(self, step: PlanStep, result: ToolResult, verified: bool, attempt: int) -> dict[str, Any]:
+        return {
+            "tool": step.action,
+            "arguments": dict(step.arguments),
+            "attempt": attempt,
+            "success": result.success,
+            "verified": verified,
+            "output": result.output,
+            "error": result.error,
+        }
+
+    def _build_planning_request(self, request: AIRequest, *, feedback: list[dict[str, Any]] | None = None) -> AIRequest:
         catalog = self._executor.catalog()
-        tool_lines = [
-            f"- {item['name']}: {item['description']}"
-            for item in catalog
-            if item.get("name") and item.get("description")
-        ]
+        tool_lines = [f"- {item['name']}: {item['description']}" for item in catalog if item.get("name") and item.get("description")]
         tools_text = "\n".join(tool_lines) if tool_lines else "- No tools are currently registered."
         system = request.system or RuleBasedPlanner.PLAN_SYSTEM_PROMPT
         system = f"{system}\n\nAvailable SATURN tools:\n{tools_text}"
+        context = list(request.context)
+        if feedback:
+            context.append({"role": "system", "content": "Observed SATURN tool results. Use these results when correcting or continuing the plan."})
+            for item in feedback:
+                context.append({"role": "tool", "content": str(item)})
         return AIRequest(
             prompt=request.prompt,
             system=system,
-            context=request.context,
+            context=context,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
-            metadata={**request.metadata, "mode": "cloud_planning"},
+            metadata={**request.metadata, "mode": "cloud_planning", "feedback_count": len(feedback or [])},
         )
 
 
 class SaturnAgent:
-    """Compatibility wrapper for orchestrator execution."""
+    def __init__(self, router: AIRouter, planner: Planner, executor: ToolExecutor, *, verifier: ResultVerifier | None = None, max_step_retries: int = 0, max_replans: int = 0) -> None:
+        self._orchestrator = AgentOrchestrator(router=router, planner=planner, executor=executor, verifier=verifier, max_step_retries=max_step_retries, max_replans=max_replans)
 
-    def __init__(
-        self,
-        router: AIRouter,
-        planner: Planner,
-        executor: ToolExecutor,
-        *,
-        verifier: ResultVerifier | None = None,
-        max_step_retries: int = 0,
-        max_replans: int = 0,
-    ) -> None:
-        self._orchestrator = AgentOrchestrator(
-            router=router,
-            planner=planner,
-            executor=executor,
-            verifier=verifier,
-            max_step_retries=max_step_retries,
-            max_replans=max_replans,
-        )
-
-    def run(
-        self,
-        request: AIRequest,
-        context: ToolContext | None = None,
-        *,
-        cancellation_token: CancellationToken | None = None,
-        timeout_seconds: float | None = None,
-    ) -> AgentRunResult:
-        return self._orchestrator.run(
-            request,
-            context=context,
-            cancellation_token=cancellation_token,
-            timeout_seconds=timeout_seconds,
-        )
+    def run(self, request: AIRequest, context: ToolContext | None = None, *, cancellation_token: CancellationToken | None = None, timeout_seconds: float | None = None) -> AgentRunResult:
+        return self._orchestrator.run(request, context=context, cancellation_token=cancellation_token, timeout_seconds=timeout_seconds)
 
 
 class TaskOrchestrator:
-    """Entry point for executing a user goal through the SATURN agent pipeline."""
-
     def __init__(self, agent: SaturnAgent | AgentOrchestrator) -> None:
         self._agent = agent
 
-    def run(
-        self,
-        goal: str,
-        *,
-        session: AgentSession | None = None,
-        metadata: dict[str, Any] | None = None,
-        cancellation_token: CancellationToken | None = None,
-        timeout_seconds: float | None = None,
-    ) -> AgentRunResult:
+    def run(self, goal: str, *, session: AgentSession | None = None, metadata: dict[str, Any] | None = None, cancellation_token: CancellationToken | None = None, timeout_seconds: float | None = None) -> AgentRunResult:
         context = session.history if session is not None else []
         request = AIRequest(prompt=goal, context=self._normalize_context(context), metadata=metadata or {})
-
-        result = self._agent.run(
-            request,
-            context=ToolContext(metadata={"goal": goal}),
-            cancellation_token=cancellation_token,
-            timeout_seconds=timeout_seconds,
-        )
-
+        result = self._agent.run(request, context=ToolContext(metadata={"goal": goal}), cancellation_token=cancellation_token, timeout_seconds=timeout_seconds)
         if session is not None:
             session.add("user", goal)
             session.add("assistant", result.response.text)
         return result
 
     def _normalize_context(self, context: list[dict[str, Any]]) -> list[dict[str, str]]:
-        normalized: list[dict[str, str]] = []
-        for entry in context:
-            role = str(entry.get("role", "user"))
-            content = str(entry.get("content", ""))
-            normalized.append({"role": role, "content": content})
-        return normalized
+        return [{"role": str(entry.get("role", "user")), "content": str(entry.get("content", ""))} for entry in context]
