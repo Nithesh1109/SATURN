@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -12,6 +13,12 @@ class ScreenCapture:
     path: str
     width: int
     height: int
+
+    def as_data_url(self) -> str:
+        """Encode the capture as an image data URL for a vision-capable provider."""
+        mime = "image/png" if self.path.lower().endswith(".png") else "image/jpeg"
+        encoded = base64.b64encode(Path(self.path).read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
 
 
 @dataclass(frozen=True)
