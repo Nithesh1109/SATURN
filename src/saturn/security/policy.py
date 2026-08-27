@@ -12,11 +12,16 @@ class PermissionDecision:
     allowed: bool
     requires_confirmation: bool = False
     reason: str | None = None
-    risk: RiskLevel = RiskLevel.LOW
+    risk: RiskLevel = RiskLevel.HIGH
 
 
 class PermissionEngine:
-    """Classify tools and enforce confirmation/deny policy at one boundary."""
+    """Classify tools and enforce confirmation/deny policy at one boundary.
+
+    Unknown tools fail closed unless the caller explicitly supplies a risk
+    classification. This prevents newly added tools from silently inheriting
+    the permissive LOW-risk default.
+    """
 
     _RISK: dict[str, RiskLevel] = {
         "open_application": RiskLevel.MEDIUM,
@@ -45,11 +50,19 @@ class PermissionEngine:
         tool_name: str,
         arguments: dict[str, object],
         *,
-        declared_risk: RiskLevel = RiskLevel.LOW,
+        declared_risk: RiskLevel | None = None,
     ) -> PermissionDecision:
-        # Built-in classifications take precedence over a tool declaration.
-        # Custom/third-party tools must explicitly declare elevated risk.
-        risk = self._RISK.get(tool_name, declared_risk)
+        if tool_name in self._RISK:
+            risk = self._RISK[tool_name]
+        elif declared_risk is not None:
+            risk = declared_risk
+        else:
+            return PermissionDecision(
+                allowed=False,
+                reason=f"Unknown tool has no declared risk policy: {tool_name}",
+                risk=RiskLevel.HIGH,
+            )
+
         if risk in self._CONFIRMATION_REQUIRED and arguments.get("confirmation") is not True:
             return PermissionDecision(
                 allowed=False,
