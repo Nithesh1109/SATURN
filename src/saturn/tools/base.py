@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..security.permissions import RiskLevel
+
 
 @dataclass(frozen=True)
 class ToolContext:
@@ -25,10 +27,15 @@ class ToolResult:
 
 
 class Tool(ABC):
-    """Base contract every SATURN tool must implement."""
+    """Base contract every SATURN tool must implement.
+
+    Tools may declare their risk explicitly. SATURN's central permission engine
+    still overrides this declaration for built-in security-sensitive tools.
+    """
 
     name: str
     description: str
+    risk_level: RiskLevel = RiskLevel.LOW
 
     @abstractmethod
     def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
