@@ -30,7 +30,11 @@ class ToolExecutor:
         if not validation.allowed:
             return ToolResult(success=False, error=f"Action rejected: {validation.error}")
 
-        permission = self._permissions.decide(tool_name, arguments)
+        permission = self._permissions.decide(
+            tool_name,
+            arguments,
+            declared_risk=tool.risk_level,
+        )
         if not permission.allowed:
             return ToolResult(success=False, error=f"Permission denied: {permission.reason}")
 
