@@ -10,12 +10,7 @@ from .perception import ScreenCapture, ScreenObservation
 
 
 class CloudVisionProvider:
-    """OpenAI-compatible NVIDIA NIM vision adapter.
-
-    The hosted NVIDIA API currently exposes Meta Llama 3.2 90B Vision through
-    the standard ``/v1/chat/completions`` surface. The model and endpoint remain
-    configurable so a different VLM or self-hosted NIM can be selected later.
-    """
+    """OpenAI-compatible NVIDIA NIM vision adapter."""
 
     DEFAULT_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
     DEFAULT_MODEL = "meta/llama-3.2-90b-vision-instruct"
@@ -29,7 +24,13 @@ class CloudVisionProvider:
         timeout_seconds: float = 60.0,
     ) -> None:
         self.endpoint = endpoint or os.getenv("SATURN_VISION_ENDPOINT", self.DEFAULT_ENDPOINT)
-        self.model = model or os.getenv("SATURN_VISION_MODEL", self.DEFAULT_MODEL)
+        # ``None`` means "use configured/default model"; an explicit empty
+        # string means "disabled" and is useful for validation/config tests.
+        self.model = (
+            os.getenv("SATURN_VISION_MODEL", self.DEFAULT_MODEL)
+            if model is None
+            else model
+        )
         self.api_key_env_var = api_key_env_var
         self.timeout_seconds = timeout_seconds
 
