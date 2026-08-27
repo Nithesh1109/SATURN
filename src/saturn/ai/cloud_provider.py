@@ -14,7 +14,9 @@ class CloudAIProvider(AIProvider):
     """OpenAI-compatible cloud adapter, configured for NVIDIA NIM by default."""
 
     DEFAULT_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
-    DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+    # NVIDIA's current hosted endpoint exposes Nemotron 3.5 Lightning as a
+    # free endpoint and positions it for agentic/tool-use workloads.
+    DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
     def __init__(
         self,
@@ -43,8 +45,6 @@ class CloudAIProvider(AIProvider):
         assert self.config is not None
         if not self.config.enabled:
             return False
-        # Injected responders are deterministic in-process providers used by
-        # tests and other callers that do not need network credentials.
         if self._responder is not None:
             return True
         env_name = self.config.api_key_env_var
