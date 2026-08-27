@@ -67,6 +67,7 @@ class CloudAIProvider(AIProvider):
         messages.extend(request.context)
         messages.append({"role": "user", "content": request.prompt})
 
+        planning_mode = request.metadata.get("mode") == "cloud_planning"
         payload: dict[str, object] = {
             "model": self.config.model,
             "messages": messages,
@@ -74,8 +75,20 @@ class CloudAIProvider(AIProvider):
         }
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        elif planning_mode:
+            payload["max_tokens"] = self.DEFAULT_PLANNER_MAX_TOKENS
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        elif planning_mode:
+            payload["temperature"] = 0.0
+
+        # Nemotron 3.5 Lightning enables thinking by default. For a strict
+        # planner response, thinking consumes the output budget and can leave
+        # SATURN with truncated JSON. NVIDIA documents disabling thinking and
+        # JSON mode for concise structured-output requests.
+        if planning_mode:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["response_format"] = {"type": "json_object"}
 
         body = json.dumps(payload).encode("utf-8")
         headers = {
@@ -107,8 +120,11 @@ class CloudAIProvider(AIProvider):
             raise RuntimeError("Cloud AI returned an unexpected response") from exc
 
         metadata: dict[str, object] = {"kind": ProviderKind.CLOUD.value}
-        user_text = text
-        structured = self._parse_structured_response(text)
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            metadata["reasoning_present"] = True
+        user_text = text if isinstance(text, str) else ""
+        structured = self._parse_structured_response(user_text)
         if structured is not None:
             tool_calls = structured.get("tool_calls", structured.get("steps", []))
             if isinstance(tool_calls, list):
@@ -128,7 +144,7 @@ class CloudAIProvider(AIProvider):
 
     @staticmethod
     def _parse_structured_response(text: str) -> dict[str, object] | None:
-        """Parse the planner JSON without making a second model/API call."""
+        """Parse a JSON object, tolerating a surrounding markdown code fence."""
         candidate = text.strip()
         if candidate.startswith("```"):
             lines = candidate.splitlines()
