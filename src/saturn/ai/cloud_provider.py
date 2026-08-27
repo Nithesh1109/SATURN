@@ -17,6 +17,7 @@ class CloudAIProvider(AIProvider):
     # NVIDIA's current hosted endpoint exposes Nemotron 3.5 Lightning as a
     # free endpoint and positions it for agentic/tool-use workloads.
     DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    DEFAULT_PLANNER_MAX_TOKENS = 384
 
     def __init__(
         self,
