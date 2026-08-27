@@ -40,8 +40,16 @@ class PermissionEngine:
 
     _CONFIRMATION_REQUIRED = {RiskLevel.HIGH, RiskLevel.CRITICAL}
 
-    def decide(self, tool_name: str, arguments: dict[str, object]) -> PermissionDecision:
-        risk = self._RISK.get(tool_name, RiskLevel.HIGH)
+    def decide(
+        self,
+        tool_name: str,
+        arguments: dict[str, object],
+        *,
+        declared_risk: RiskLevel = RiskLevel.LOW,
+    ) -> PermissionDecision:
+        # Built-in classifications take precedence over a tool declaration.
+        # Custom/third-party tools must explicitly declare elevated risk.
+        risk = self._RISK.get(tool_name, declared_risk)
         if risk in self._CONFIRMATION_REQUIRED and arguments.get("confirmation") is not True:
             return PermissionDecision(
                 allowed=False,
